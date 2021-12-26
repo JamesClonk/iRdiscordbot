@@ -1,15 +1,26 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"regexp"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/JamesClonk/iRdiscordbot/env"
 	"github.com/JamesClonk/iRdiscordbot/log"
 	"github.com/bwmarrin/discordgo"
+)
+
+var (
+	rx = regexp.MustCompile("[^0-9]+")
 )
 
 func main() {
@@ -48,24 +59,270 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	// if m.Content == "!summary" {
-	// 	if _, err := s.ChannelMessageSend(m.ChannelID, "https://irvisualizer.jamesclonk.io/season/3492/summary.png?team=TNT%20Racing"); err != nil {
-	// 		log.Errorf("error sending message: %v", err)
-	// 		return
-	// 	}
-	// }
-	if m.Content == "!summary" {
-		embed := discordgo.MessageEmbed{
-			Title:       "Radical Racing Challenge - Driver Summary",
-			Description: "Shows driver summary data for the whole season",
-			Type:        discordgo.EmbedTypeImage,
-			Image: &discordgo.MessageEmbedImage{
-				URL: fmt.Sprintf("https://irvisualizer.jamesclonk.io/season/3492/summary.png?team=TNT%%20Racing&cb=%d", time.Now().UnixNano()/1000/1000/1000),
-			},
+	// check if this message was meant for our bot
+	switch true {
+	case strings.HasPrefix(m.Content, "!summary"), strings.HasPrefix(m.Content, "!drivers"):
+	case strings.HasPrefix(m.Content, "!standings"), strings.HasPrefix(m.Content, "!rankins"):
+	case strings.HasPrefix(m.Content, "!stats"), strings.HasPrefix(m.Content, "!statistics"):
+	default:
+		return
+	}
+	/*
+	   !summary [series] [week]
+	   !standings|ranking [series]
+	   !stats [series] [week]
+	*/
+
+	var weekLookup, seriesLookup string
+	// try to guess racing series by channel name
+	c, err := s.Channel(m.ChannelID)
+	if err != nil {
+		log.Errorf("error getting channel: %v", err)
+		return
+	}
+	switch true {
+	case strings.Contains(strings.ToLower(c.Name), "adical"):
+		seriesLookup = "Radical"
+	case strings.Contains(strings.ToLower(c.Name), "indy"):
+		seriesLookup = "Indy Pro"
+	case strings.Contains(strings.ToLower(c.Name), "fr20"):
+		seriesLookup = "Formula Renault 2.0"
+	case strings.Contains(strings.ToLower(c.Name), "fr35"):
+		seriesLookup = "Formula 3.5"
+	case strings.Contains(strings.ToLower(c.Name), "f3"):
+		seriesLookup = "F3 Championship"
+	}
+	if len(seriesLookup) > 0 {
+		log.Debugf("found series name by channel lookup: %s", seriesLookup)
+	}
+
+	var teamLookup string
+	// try to guess team by server name
+	g, err := s.Guild(c.GuildID)
+	if err != nil {
+		log.Errorf("error getting guild: %v", err)
+		return
+	}
+	teamLookup = url.QueryEscape(g.Name)
+
+	// eval parameters
+	params := strings.Split(m.Content, " ")
+	if len(seriesLookup) == 0 { // we haven't guessed series name yet
+		if len(params) == 2 {
+			// full specific series summary
+			seriesLookup = params[1]
 		}
-		if _, err := s.ChannelMessageSendEmbed(m.ChannelID, &embed); err != nil {
-			log.Errorf("error sending message: %v", err)
+		if len(params) == 3 {
+			// specific week summary
+			seriesLookup = params[1]
+			weekLookup = params[2]
+		}
+	} else { // we've already guessed series by channel name
+		if len(params) == 2 &&
+			(!strings.HasPrefix(m.Content, "!standings") || !strings.HasPrefix(m.Content, "!rankings")) {
+			// specific week summary
+			weekLookup = params[1]
+		}
+		if len(params) == 3 {
+			// specific week summary
+			seriesLookup = params[1]
+			weekLookup = params[2]
+		}
+	}
+
+	// verify parameters
+	if len(weekLookup) > 0 {
+		// strip all non-numeric characters
+		weekLookup = rx.ReplaceAllString(weekLookup, "")
+		// check validity
+		if w, err := strconv.Atoi(weekLookup); err != nil || w < 1 || w > 13 {
+			if _, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Invalid week number given: %v", weekLookup)); err != nil {
+				log.Errorf("error sending message: %v", err)
+				return
+			}
 			return
 		}
 	}
+
+	// query current seasons
+	series, err := getSeriesData()
+	if err != nil {
+		log.Errorf("error querying series data: %v", err)
+		return
+	}
+
+	// process message
+	if strings.HasPrefix(m.Content, "!summary") || strings.HasPrefix(m.Content, "!drivers") {
+		postSummary(s, m, teamLookup, weekLookup, seriesLookup, series)
+	}
+	if strings.HasPrefix(m.Content, "!standings") || strings.HasPrefix(m.Content, "!rankings") {
+		postStandings(s, m, teamLookup, weekLookup, seriesLookup, series)
+	}
+	if strings.HasPrefix(m.Content, "!stats") || strings.HasPrefix(m.Content, "!statistics") {
+		postStatistics(s, m, teamLookup, weekLookup, seriesLookup, series)
+	}
+}
+
+func postSummary(s *discordgo.Session, m *discordgo.MessageCreate, teamLookup, weekLookup, seriesLookup string, series []Series) {
+	// respond
+	for _, season := range series {
+		// full series summary
+		if len(weekLookup) == 0 {
+			if strings.Contains(strings.ToLower(season.Name), strings.ToLower(seriesLookup)) || len(seriesLookup) == 0 {
+				embed := discordgo.MessageEmbed{
+					Title:       fmt.Sprintf("%s - Driver Summary", season.CurrentSeason),
+					Description: fmt.Sprintf("Shows driver summary data for the whole %s season", season.Name),
+					Type:        discordgo.EmbedTypeImage,
+					Image: &discordgo.MessageEmbedImage{
+						URL: fmt.Sprintf(
+							"https://irvisualizer.jamesclonk.io/season/%d/summary.png?team=%s&cb=%d",
+							season.CurrentSeasonID, teamLookup, time.Now().UnixNano()/1000/1000/1000,
+						),
+					},
+				}
+				if _, err := s.ChannelMessageSendEmbed(m.ChannelID, &embed); err != nil {
+					log.Errorf("error sending message: %v", err)
+					return
+				}
+			}
+		} else { // specific week summary
+			if strings.Contains(strings.ToLower(season.Name), strings.ToLower(seriesLookup)) || len(seriesLookup) == 0 {
+				embed := discordgo.MessageEmbed{
+					Title:       fmt.Sprintf("%s - Driver Summary - Week %s", season.CurrentSeason, weekLookup),
+					Description: fmt.Sprintf("Shows driver summary data for week %s of the %s season", weekLookup, season.Name),
+					Type:        discordgo.EmbedTypeImage,
+					Image: &discordgo.MessageEmbedImage{
+						URL: fmt.Sprintf(
+							"https://irvisualizer.jamesclonk.io/season/%d/week/%s/summary.png?team=%s&cb=%d",
+							season.CurrentSeasonID, weekLookup, teamLookup, time.Now().UnixNano()/1000/1000/1000,
+						),
+					},
+				}
+				if _, err := s.ChannelMessageSendEmbed(m.ChannelID, &embed); err != nil {
+					log.Errorf("error sending message: %v", err)
+					return
+				}
+			}
+		}
+	}
+}
+
+func postStandings(s *discordgo.Session, m *discordgo.MessageCreate, teamLookup, weekLookup, seriesLookup string, series []Series) {
+	// respond
+	for _, season := range series {
+		if strings.Contains(strings.ToLower(season.Name), strings.ToLower(seriesLookup)) || len(seriesLookup) == 0 {
+			embed := discordgo.MessageEmbed{
+				Title:       fmt.Sprintf("%s - Standings", season.Name),
+				Description: fmt.Sprintf("Shows current standings for the %s", season.CurrentSeason),
+				Type:        discordgo.EmbedTypeImage,
+				Image: &discordgo.MessageEmbedImage{
+					URL: fmt.Sprintf(
+						"https://irvisualizer.jamesclonk.io/season/%d/standings.png?team=%s&cb=%d",
+						season.CurrentSeasonID, teamLookup, time.Now().UnixNano()/1000/1000/1000,
+					),
+				},
+			}
+			if _, err := s.ChannelMessageSendEmbed(m.ChannelID, &embed); err != nil {
+				log.Errorf("error sending message: %v", err)
+				return
+			}
+		}
+	}
+}
+
+func postStatistics(s *discordgo.Session, m *discordgo.MessageCreate, teamLookup, weekLookup, seriesLookup string, series []Series) {
+	// respond
+	for _, season := range series {
+		if strings.Contains(strings.ToLower(season.Name), strings.ToLower(seriesLookup)) || len(seriesLookup) == 0 {
+			if len(weekLookup) == 0 {
+				weekLookup = strconv.Itoa(season.CurrentWeek)
+			}
+			embed := discordgo.MessageEmbed{
+				Title:       fmt.Sprintf("%s - Statistics - Week %s", season.CurrentSeason, weekLookup),
+				Description: fmt.Sprintf("Shows statistics for week %s of the %s season", weekLookup, season.Name),
+				Type:        discordgo.EmbedTypeImage,
+				Image: &discordgo.MessageEmbedImage{
+					URL: fmt.Sprintf(
+						"https://irvisualizer.jamesclonk.io/season/%d/week/%s/top/scores.png?team=%s&cb=%d",
+						season.CurrentSeasonID, weekLookup, teamLookup, time.Now().UnixNano()/1000/1000/1000,
+					),
+				},
+			}
+			if _, err := s.ChannelMessageSendEmbed(m.ChannelID, &embed); err != nil {
+				log.Errorf("error sending message: %v", err)
+				return
+			}
+			embed = discordgo.MessageEmbed{
+				Type: discordgo.EmbedTypeImage,
+				Image: &discordgo.MessageEmbedImage{
+					URL: fmt.Sprintf(
+						"https://irvisualizer.jamesclonk.io/season/%d/week/%s/top/racers.png?team=%s&cb=%d",
+						season.CurrentSeasonID, weekLookup, teamLookup, time.Now().UnixNano()/1000/1000/1000,
+					),
+				},
+			}
+			if _, err := s.ChannelMessageSendEmbed(m.ChannelID, &embed); err != nil {
+				log.Errorf("error sending message: %v", err)
+				return
+			}
+			embed = discordgo.MessageEmbed{
+				Type: discordgo.EmbedTypeImage,
+				Image: &discordgo.MessageEmbedImage{
+					URL: fmt.Sprintf(
+						"https://irvisualizer.jamesclonk.io/season/%d/week/%s/top/safety.png?team=%s&cb=%d",
+						season.CurrentSeasonID, weekLookup, teamLookup, time.Now().UnixNano()/1000/1000/1000,
+					),
+				},
+			}
+			if _, err := s.ChannelMessageSendEmbed(m.ChannelID, &embed); err != nil {
+				log.Errorf("error sending message: %v", err)
+				return
+			}
+			if _, err := s.ChannelMessageSendEmbed(m.ChannelID, &embed); err != nil {
+				log.Errorf("error sending message: %v", err)
+				return
+			}
+			embed = discordgo.MessageEmbed{
+				Type: discordgo.EmbedTypeImage,
+				Image: &discordgo.MessageEmbedImage{
+					URL: fmt.Sprintf(
+						"https://irvisualizer.jamesclonk.io/season/%d/week/%s/top/laps.png?team=%s&cb=%d",
+						season.CurrentSeasonID, weekLookup, teamLookup, time.Now().UnixNano()/1000/1000/1000,
+					),
+				},
+			}
+		}
+	}
+}
+
+type Series struct {
+	ID              int    `json:"series_id"`
+	Name            string `json:"name"`
+	CurrentSeason   string `json:"current_season"`
+	CurrentSeasonID int    `json:"current_season_id"`
+	CurrentWeek     int    `json:"current_week"`
+}
+
+func getSeriesData() ([]Series, error) {
+	resp, err := http.Get("https://irvisualizer.jamesclonk.io/series_json")
+	if err != nil {
+		return nil, fmt.Errorf("failed request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status code: %v", resp.StatusCode)
+	}
+
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %v", err)
+	}
+
+	var series []Series
+	if err := json.Unmarshal(data, &series); err != nil {
+		log.Errorf("could not parse series json data: %#v", data)
+		return nil, err
+	}
+	return series, nil
 }
