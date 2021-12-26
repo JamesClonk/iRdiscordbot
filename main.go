@@ -17,6 +17,7 @@ import (
 	"github.com/JamesClonk/iRdiscordbot/env"
 	"github.com/JamesClonk/iRdiscordbot/log"
 	"github.com/bwmarrin/discordgo"
+	"github.com/gorilla/mux"
 )
 
 var (
@@ -24,8 +25,11 @@ var (
 )
 
 func main() {
+	port := env.Get("PORT", "8080")
 	level := env.Get("LOG_LEVEL", "info")
 	token := env.MustGet("BOT_TOKEN")
+
+	log.Infoln("port:", port)
 	log.Infoln("log level:", level)
 
 	// create Discord session using bot token
@@ -44,6 +48,14 @@ func main() {
 		return
 	}
 
+	// start health endpoint
+	go func(s *discordgo.Session) {
+		router := mux.NewRouter()
+		router.PathPrefix("/health").HandlerFunc(checkHealth(s))
+
+		log.Fatalln(http.ListenAndServe(":"+port, router))
+	}(dg)
+
 	log.Infoln("iRdiscordbot is running...")
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill, syscall.SIGKILL)
@@ -51,6 +63,19 @@ func main() {
 
 	// disconnect
 	dg.Close()
+}
+
+func checkHealth(s *discordgo.Session) func(rw http.ResponseWriter, req *http.Request) {
+	return func(rw http.ResponseWriter, req *http.Request) {
+		rw.Header().Set("Content-Type", "application/json")
+		if s.HeartbeatLatency() > time.Duration(time.Minute*5) {
+			rw.WriteHeader(500)
+			_, _ = rw.Write([]byte(`{ "status": "failed" }`))
+			return
+		}
+		rw.WriteHeader(200)
+		_, _ = rw.Write([]byte(`{ "status": "ok" }`))
+	}
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
