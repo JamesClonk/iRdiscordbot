@@ -303,10 +303,6 @@ func postStatistics(s *discordgo.Session, m *discordgo.MessageCreate, teamLookup
 				log.Errorf("error sending message: %v", err)
 				return
 			}
-			if _, err := s.ChannelMessageSendEmbed(m.ChannelID, &embed); err != nil {
-				log.Errorf("error sending message: %v", err)
-				return
-			}
 			embed = discordgo.MessageEmbed{
 				Type: discordgo.EmbedTypeImage,
 				Image: &discordgo.MessageEmbedImage{
@@ -315,6 +311,10 @@ func postStatistics(s *discordgo.Session, m *discordgo.MessageCreate, teamLookup
 						season.CurrentSeasonID, weekLookup, teamLookup, time.Now().UnixNano()/1000/1000/1000,
 					),
 				},
+			}
+			if _, err := s.ChannelMessageSendEmbed(m.ChannelID, &embed); err != nil {
+				log.Errorf("error sending message: %v", err)
+				return
 			}
 		}
 	}
