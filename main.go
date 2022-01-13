@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -23,6 +24,10 @@ import (
 var (
 	rx = regexp.MustCompile("[^0-9]+")
 )
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
 func main() {
 	port := env.Get("PORT", "8080")
@@ -177,6 +182,9 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	// process message
+	if strings.HasPrefix(m.Content, "!Martijn") || strings.HasPrefix(m.Content, "!Anne") || strings.HasPrefix(m.Content, "!Erwin") {
+		postDutchJokes(s, m)
+	}
 	if strings.HasPrefix(m.Content, "!summary") || strings.HasPrefix(m.Content, "!drivers") {
 		postSummary(s, m, teamLookup, weekLookup, seriesLookup, series)
 	}
@@ -185,6 +193,21 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 	if strings.HasPrefix(m.Content, "!stats") || strings.HasPrefix(m.Content, "!statistics") {
 		postStatistics(s, m, teamLookup, weekLookup, seriesLookup, series)
+	}
+}
+
+func postDutchJokes(s *discordgo.Session, m *discordgo.MessageCreate) {
+	// respond
+	joke, err := getJoke()
+	if err == nil && len(joke) > 0 {
+		embed := discordgo.MessageEmbed{
+			Title:       "Let's hear a random dutch joke",
+			Description: joke,
+		}
+		if _, err := s.ChannelMessageSendEmbed(m.ChannelID, &embed); err != nil {
+			log.Errorf("error sending message: %v", err)
+			return
+		}
 	}
 }
 
@@ -350,4 +373,35 @@ func getSeriesData() ([]Series, error) {
 		return nil, err
 	}
 	return series, nil
+}
+
+func getJoke() (string, error) {
+	jokeType := "xxx"
+	if rand.Intn(2) > 0 {
+		jokeType = "nl"
+	}
+
+	resp, err := http.Get("http://api.apekool.nl/services/jokes/getjoke.php?type=" + jokeType)
+	if err != nil {
+		return "", fmt.Errorf("failed joke request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("joke status code: %v", resp.StatusCode)
+	}
+
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read body: %v", err)
+	}
+
+	joke := struct {
+		Joke string `json:"joke"`
+	}{}
+	if err := json.Unmarshal(data, &joke); err != nil {
+		log.Errorf("could not parse joke json data: %#v", data)
+		return "", err
+	}
+	return joke.Joke, nil
 }
