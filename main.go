@@ -89,6 +89,12 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
+	// easter egg, dutch jokes
+	if strings.HasPrefix(m.Content, "!Martijn") || strings.HasPrefix(m.Content, "!Anne") || strings.HasPrefix(m.Content, "!Erwin") {
+		postDutchJokes(s, m)
+		return
+	}
+
 	// check if this message was meant for our bot
 	switch true {
 	case strings.HasPrefix(m.Content, "!summary"), strings.HasPrefix(m.Content, "!drivers"):
@@ -182,9 +188,6 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	// process message
-	if strings.HasPrefix(m.Content, "!Martijn") || strings.HasPrefix(m.Content, "!Anne") || strings.HasPrefix(m.Content, "!Erwin") {
-		postDutchJokes(s, m)
-	}
 	if strings.HasPrefix(m.Content, "!summary") || strings.HasPrefix(m.Content, "!drivers") {
 		postSummary(s, m, teamLookup, weekLookup, seriesLookup, series)
 	}
@@ -208,6 +211,9 @@ func postDutchJokes(s *discordgo.Session, m *discordgo.MessageCreate) {
 			log.Errorf("error sending message: %v", err)
 			return
 		}
+	} else {
+		log.Errorf("error retrieving joke: %v", err)
+		return
 	}
 }
 
