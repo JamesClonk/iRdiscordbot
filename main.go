@@ -90,16 +90,18 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	// easter egg, dutch jokes
-	if strings.HasPrefix(m.Content, "!Martijn") || strings.HasPrefix(m.Content, "!Anne") || strings.HasPrefix(m.Content, "!Erwin") {
+	if strings.HasPrefix(strings.ToLower(m.Content), "!martijn") ||
+		strings.HasPrefix(strings.ToLower(m.Content), "!anne") ||
+		strings.HasPrefix(strings.ToLower(m.Content), "!erwin") {
 		postDutchJokes(s, m)
 		return
 	}
 
 	// check if this message was meant for our bot
 	switch true {
-	case strings.HasPrefix(m.Content, "!summary"), strings.HasPrefix(m.Content, "!drivers"):
-	case strings.HasPrefix(m.Content, "!standings"), strings.HasPrefix(m.Content, "!rankins"):
-	case strings.HasPrefix(m.Content, "!stats"), strings.HasPrefix(m.Content, "!statistics"):
+	case strings.HasPrefix(strings.ToLower(m.Content), "!summary"), strings.HasPrefix(strings.ToLower(m.Content), "!drivers"):
+	case strings.HasPrefix(strings.ToLower(m.Content), "!standings"), strings.HasPrefix(strings.ToLower(m.Content), "!rankings"):
+	case strings.HasPrefix(strings.ToLower(m.Content), "!stats"), strings.HasPrefix(strings.ToLower(m.Content), "!statistics"):
 	default:
 		return
 	}
@@ -127,6 +129,8 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		seriesLookup = "Formula 3.5"
 	case strings.Contains(strings.ToLower(c.Name), "f3"):
 		seriesLookup = "F3 Championship"
+	case strings.Contains(strings.ToLower(c.Name), "ir04"):
+		seriesLookup = "Formula iR-04"
 	}
 	if len(seriesLookup) > 0 {
 		log.Debugf("found series name by channel lookup: %s", seriesLookup)
@@ -155,7 +159,8 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	} else { // we've already guessed series by channel name
 		if len(params) == 2 &&
-			(!strings.HasPrefix(m.Content, "!standings") || !strings.HasPrefix(m.Content, "!rankings")) {
+			(!strings.HasPrefix(strings.ToLower(m.Content), "!standings") ||
+				!strings.HasPrefix(strings.ToLower(m.Content), "!rankings")) {
 			// specific week summary
 			weekLookup = params[1]
 		}
@@ -188,13 +193,16 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	// process message
-	if strings.HasPrefix(m.Content, "!summary") || strings.HasPrefix(m.Content, "!drivers") {
+	if strings.HasPrefix(strings.ToLower(m.Content), "!summary") ||
+		strings.HasPrefix(strings.ToLower(m.Content), "!drivers") {
 		postSummary(s, m, teamLookup, weekLookup, seriesLookup, series)
 	}
-	if strings.HasPrefix(m.Content, "!standings") || strings.HasPrefix(m.Content, "!rankings") {
+	if strings.HasPrefix(strings.ToLower(m.Content), "!standings") ||
+		strings.HasPrefix(strings.ToLower(m.Content), "!rankings") {
 		postStandings(s, m, teamLookup, weekLookup, seriesLookup, series)
 	}
-	if strings.HasPrefix(m.Content, "!stats") || strings.HasPrefix(m.Content, "!statistics") {
+	if strings.HasPrefix(strings.ToLower(m.Content), "!stats") ||
+		strings.HasPrefix(strings.ToLower(m.Content), "!statistics") {
 		postStatistics(s, m, teamLookup, weekLookup, seriesLookup, series)
 	}
 }
