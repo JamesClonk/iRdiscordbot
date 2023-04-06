@@ -92,7 +92,9 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// easter egg, dutch jokes
 	if strings.HasPrefix(strings.ToLower(m.Content), "!martijn") ||
 		strings.HasPrefix(strings.ToLower(m.Content), "!anne") ||
-		strings.HasPrefix(strings.ToLower(m.Content), "!erwin") {
+		strings.HasPrefix(strings.ToLower(m.Content), "!erwin") ||
+		strings.HasPrefix(strings.ToLower(m.Content), "!dutch") ||
+		strings.HasPrefix(strings.ToLower(m.Content), "!joke") {
 		postDutchJokes(s, m)
 		return
 	}
@@ -131,6 +133,8 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		seriesLookup = "F3 Championship"
 	case strings.Contains(strings.ToLower(c.Name), "ir04"):
 		seriesLookup = "Formula iR-04"
+	case strings.Contains(strings.ToLower(c.Name), "1600"):
+		seriesLookup = "Formula 1600"
 	}
 	if len(seriesLookup) > 0 {
 		log.Debugf("found series name by channel lookup: %s", seriesLookup)
