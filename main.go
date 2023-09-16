@@ -135,6 +135,8 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		seriesLookup = "Formula iR-04"
 	case strings.Contains(strings.ToLower(c.Name), "1600"):
 		seriesLookup = "Formula 1600"
+	case strings.Contains(strings.ToLower(c.Name), "sf23"):
+		seriesLookup = "Super Formula"
 	}
 	if len(seriesLookup) > 0 {
 		log.Debugf("found series name by channel lookup: %s", seriesLookup)
