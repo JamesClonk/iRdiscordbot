@@ -123,7 +123,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	switch true {
 	case strings.Contains(strings.ToLower(c.Name), "adical"):
 		seriesLookup = "Radical"
-	case strings.Contains(strings.ToLower(c.Name), "indy"):
+	case strings.Contains(strings.ToLower(c.Name), "indy-pro"):
 		seriesLookup = "Indy Pro"
 	case strings.Contains(strings.ToLower(c.Name), "fr20"):
 		seriesLookup = "Formula Renault 2.0"
@@ -132,11 +132,13 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	case strings.Contains(strings.ToLower(c.Name), "f3"):
 		seriesLookup = "F3 Championship"
 	case strings.Contains(strings.ToLower(c.Name), "ir04"):
-		seriesLookup = "Formula iR-04"
+		seriesLookup = "Formula 4"
 	case strings.Contains(strings.ToLower(c.Name), "1600"):
 		seriesLookup = "Formula 1600"
 	case strings.Contains(strings.ToLower(c.Name), "sf23"):
 		seriesLookup = "Super Formula"
+	case strings.Contains(strings.ToLower(c.Name), "usf-2000"):
+		seriesLookup = "USF 2000"
 	}
 	if len(seriesLookup) > 0 {
 		log.Debugf("found series name by channel lookup: %s", seriesLookup)
